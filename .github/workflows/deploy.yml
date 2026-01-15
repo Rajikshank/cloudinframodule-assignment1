@@ -6,8 +6,8 @@ on:
       - main
 
 env:
-  AWS_REGION: us-east-1                   
-  ECR_REPOSITORY: cloud-inframodule-app  
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: cloud-inframodule-app
   ECS_SERVICE: cloud-inframodule-service
   ECS_CLUSTER: cloud-inframodule-cluster
   ECS_TASK_DEFINITION: cloud-inframodule-task
@@ -58,7 +58,7 @@ jobs:
           aws ecs describe-task-definition \
             --task-definition ${{ env.ECS_TASK_DEFINITION }} \
             --region ${{ env.AWS_REGION }} \
-            --output json > task-definition.json
+            --output json | jq '.taskDefinition' > task-definition.json
 
       - name: Update task definition with new image
         id: task-def
