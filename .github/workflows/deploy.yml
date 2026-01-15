@@ -6,8 +6,8 @@ on:
       - main
 
 env:
-  AWS_REGION: us-east-1                   # from variable.aws_region default
-  ECR_REPOSITORY: cloud-inframodule-app  # match your project_name + suffix, adjust as needed
+  AWS_REGION: us-east-1                   
+  ECR_REPOSITORY: cloud-inframodule-app  
   ECS_SERVICE: cloud-inframodule-service
   ECS_CLUSTER: cloud-inframodule-cluster
   ECS_TASK_DEFINITION: cloud-inframodule-task
