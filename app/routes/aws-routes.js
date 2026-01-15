@@ -1,54 +1,8 @@
 const express = require('express');
-const path = require('path');
-const AWS = require('aws-sdk');
+const router = express.Router();
+const { s3, region } = require('../config/aws-config');
 
-const app = express();
-const port = 8080;
-
-// Configure AWS SDK
-AWS.config.update({ region: process.env.AWS_REGION || 'us-east-1' });
-
-const s3 = new AWS.S3();
-const dynamodb = new AWS.DynamoDB.DocumentClient();
-
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  const os = require('os');
-  const uptime = process.uptime();
-  const hours = Math.floor(uptime / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
-
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: {
-      raw: uptime,
-      formatted: `${hours}h ${minutes}m ${seconds}s`
-    },
-    system: {
-      platform: os.platform(),
-      arch: os.arch(),
-      nodeVersion: process.version,
-      memory: {
-        total: `${(os.totalmem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-        free: `${(os.freemem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-        used: `${((os.totalmem() - os.freemem()) / 1024 / 1024 / 1024).toFixed(2)} GB`
-      },
-      cpu: {
-        cores: os.cpus().length,
-        model: os.cpus()[0]?.model || 'Unknown'
-      }
-    },
-    developer: 'Rajikshan'
-  });
-});
-
-// S3 buckets endpoint
-app.get('/api/s3-buckets', async (req, res) => {
+router.get('/s3-buckets', async (req, res) => {
   try {
     const data = await s3.listBuckets().promise();
     
@@ -96,10 +50,9 @@ app.get('/api/s3-buckets', async (req, res) => {
   }
 });
 
-// AWS info endpoint
-app.get('/api/aws-info', (req, res) => {
+router.get('/aws-info', (req, res) => {
   res.json({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: region,
     service: 'ECS Fargate',
     container: {
       hostname: process.env.HOSTNAME || 'local',
@@ -115,12 +68,4 @@ app.get('/api/aws-info', (req, res) => {
   });
 });
 
-// Main page
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${port}`);
-  console.log(`👨‍💻 Developed by Rajikshan`);
-});
+module.exports = router;
