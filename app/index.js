@@ -1,15 +1,15 @@
 const express = require('express');
 const path = require('path');
-const AWS = require('aws-sdk');
+const { S3Client, ListBucketsCommand, GetBucketLocationCommand, GetBucketVersioningCommand } = require('@aws-sdk/client-s3');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 
 const app = express();
 const port = 8080;
 
-// Configure AWS SDK
-AWS.config.update({ region: process.env.AWS_REGION || 'us-east-1' });
-
-const s3 = new AWS.S3();
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+// Configure AWS SDK v3
+const region = process.env.AWS_REGION || 'us-east-1';
+const s3Client = new S3Client({ region });
+const dynamoClient = new DynamoDBClient({ region });
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -50,20 +50,27 @@ app.get('/api/health', (req, res) => {
 // S3 buckets endpoint
 app.get('/api/s3-buckets', async (req, res) => {
   try {
-    const data = await s3.listBuckets().promise();
+    // List all buckets
+    const listCommand = new ListBucketsCommand({});
+    const data = await s3Client.send(listCommand);
     
-    // Get additional bucket details
+    // Get additional bucket details for first 10 buckets
     const bucketsWithDetails = await Promise.all(
       data.Buckets.slice(0, 10).map(async (bucket) => {
         try {
-          const location = await s3.getBucketLocation({ Bucket: bucket.Name }).promise();
-          const versioning = await s3.getBucketVersioning({ Bucket: bucket.Name }).promise();
+          // Get bucket location
+          const locationCommand = new GetBucketLocationCommand({ Bucket: bucket.Name });
+          const locationData = await s3Client.send(locationCommand);
+          
+          // Get bucket versioning
+          const versioningCommand = new GetBucketVersioningCommand({ Bucket: bucket.Name });
+          const versioningData = await s3Client.send(versioningCommand);
           
           return {
             name: bucket.Name,
             creationDate: bucket.CreationDate,
-            region: location.LocationConstraint || 'us-east-1',
-            versioning: versioning.Status || 'Disabled',
+            region: locationData.LocationConstraint || 'us-east-1',
+            versioning: versioningData.Status || 'Disabled',
             ageInDays: Math.floor((new Date() - new Date(bucket.CreationDate)) / (1000 * 60 * 60 * 24))
           };
         } catch (error) {
@@ -99,7 +106,7 @@ app.get('/api/s3-buckets', async (req, res) => {
 // AWS info endpoint
 app.get('/api/aws-info', (req, res) => {
   res.json({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: region,
     service: 'ECS Fargate',
     container: {
       hostname: process.env.HOSTNAME || 'local',
@@ -107,7 +114,7 @@ app.get('/api/aws-info', (req, res) => {
       nodeVersion: process.version
     },
     environment: {
-      awsRegion: process.env.AWS_REGION || 'us-east-1',
+      awsRegion: region,
       nodeEnv: process.env.NODE_ENV || 'production'
     },
     developer: 'Rajikshan',
@@ -123,4 +130,8 @@ app.get('/', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${port}`);
   console.log(`👨‍💻 Developed by Rajikshan`);
+  console.log(`📡 API Endpoints available at:`);
+  console.log(`   - http://localhost:${port}/api/health`);
+  console.log(`   - http://localhost:${port}/api/aws-info`);
+  console.log(`   - http://localhost:${port}/api/s3-buckets`);
 });
