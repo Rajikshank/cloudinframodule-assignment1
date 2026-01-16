@@ -1,97 +1,134 @@
 const express = require('express');
-const path = require('path');
-const { S3Client, ListBucketsCommand, GetBucketLocationCommand, GetBucketVersioningCommand } = require('@aws-sdk/client-s3');
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const AWS = require('aws-sdk');
 
 const app = express();
 const port = 8080;
 
-// Configure AWS SDK v3
-const region = process.env.AWS_REGION || 'us-east-1';
-const s3Client = new S3Client({ region });
-const dynamoClient = new DynamoDBClient({ region });
+// Configure AWS SDK
+AWS.config.update({ region: process.env.AWS_REGION || 'us-east-1' });
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+const s3 = new AWS.S3();
+const dynamodb = new AWS.DynamoDB.DocumentClient();
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  const os = require('os');
-  const uptime = process.uptime();
-  const hours = Math.floor(uptime / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>AWS ECS Demo App</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          max-width: 800px;
+          margin: 50px auto;
+          padding: 20px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+        }
+        .container {
+          background: white;
+          padding: 40px;
+          border-radius: 10px;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+          color: #333;
+          text-align: center;
+          margin-bottom: 10px;
+        }
+        .developer {
+          text-align: center;
+          color: #666;
+          font-style: italic;
+          margin-bottom: 30px;
+          font-size: 14px;
+        }
+        .status {
+          background: #f0f9ff;
+          padding: 20px;
+          border-radius: 5px;
+          margin: 20px 0;
+          border-left: 4px solid #0ea5e9;
+        }
+        .button {
+          display: inline-block;
+          background: #667eea;
+          color: white;
+          padding: 10px 20px;
+          text-decoration: none;
+          border-radius: 5px;
+          margin: 5px;
+          transition: background 0.3s;
+        }
+        .button:hover {
+          background: #764ba2;
+        }
+        .info {
+          margin: 10px 0;
+          padding: 10px;
+          background: #f8fafc;
+          border-radius: 5px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🚀 AWS ECS Fargate Demo Application</h1>
+        <p class="developer">Developed by <strong>Rajikshan</strong></p>
+        
+        <div class="status">
+          <h2>✅ Application Status</h2>
+          <div class="info">
+            <strong>Status:</strong> Running<br>
+            <strong>Port:</strong> ${port}<br>
+            <strong>Environment:</strong> AWS ECS Fargate<br>
+            <strong>Region:</strong> ${process.env.AWS_REGION || 'us-east-1'}
+          </div>
+        </div>
 
+        <div class="status">
+          <h2>🔗 Available Endpoints</h2>
+          <a href="/health" class="button">Health Check</a>
+          <a href="/s3-buckets" class="button">List S3 Buckets</a>
+          <a href="/aws-info" class="button">AWS Info</a>
+        </div>
+
+        <div class="status">
+          <h2>📋 Project Details</h2>
+          <p>This application demonstrates:</p>
+          <ul>
+            <li>Node.js application running on ECS Fargate</li>
+            <li>Infrastructure provisioned with Terraform</li>
+            <li>CI/CD with GitHub Actions</li>
+            <li>Docker containerization</li>
+            <li>AWS service integration (S3, IAM)</li>
+          </ul>
+        </div>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    uptime: {
-      raw: uptime,
-      formatted: `${hours}h ${minutes}m ${seconds}s`
-    },
-    system: {
-      platform: os.platform(),
-      arch: os.arch(),
-      nodeVersion: process.version,
-      memory: {
-        total: `${(os.totalmem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-        free: `${(os.freemem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-        used: `${((os.totalmem() - os.freemem()) / 1024 / 1024 / 1024).toFixed(2)} GB`
-      },
-      cpu: {
-        cores: os.cpus().length,
-        model: os.cpus()[0]?.model || 'Unknown'
-      }
-    },
+    uptime: process.uptime(),
     developer: 'Rajikshan'
   });
 });
 
-// S3 buckets endpoint
-app.get('/api/s3-buckets', async (req, res) => {
+app.get('/s3-buckets', async (req, res) => {
   try {
-    // List all buckets
-    const listCommand = new ListBucketsCommand({});
-    const data = await s3Client.send(listCommand);
-    
-    // Get additional bucket details for first 10 buckets
-    const bucketsWithDetails = await Promise.all(
-      data.Buckets.slice(0, 10).map(async (bucket) => {
-        try {
-          // Get bucket location
-          const locationCommand = new GetBucketLocationCommand({ Bucket: bucket.Name });
-          const locationData = await s3Client.send(locationCommand);
-          
-          // Get bucket versioning
-          const versioningCommand = new GetBucketVersioningCommand({ Bucket: bucket.Name });
-          const versioningData = await s3Client.send(versioningCommand);
-          
-          return {
-            name: bucket.Name,
-            creationDate: bucket.CreationDate,
-            region: locationData.LocationConstraint || 'us-east-1',
-            versioning: versioningData.Status || 'Disabled',
-            ageInDays: Math.floor((new Date() - new Date(bucket.CreationDate)) / (1000 * 60 * 60 * 24))
-          };
-        } catch (error) {
-          return {
-            name: bucket.Name,
-            creationDate: bucket.CreationDate,
-            region: 'Access Denied',
-            versioning: 'Unknown',
-            ageInDays: Math.floor((new Date() - new Date(bucket.CreationDate)) / (1000 * 60 * 60 * 24))
-          };
-        }
-      })
-    );
-
+    const data = await s3.listBuckets().promise();
     res.json({
       success: true,
-      buckets: bucketsWithDetails,
-      totalCount: data.Buckets.length,
-      displayedCount: bucketsWithDetails.length,
-      developer: 'Rajikshan',
-      timestamp: new Date().toISOString()
+      buckets: data.Buckets,
+      count: data.Buckets.length,
+      developer: 'Rajikshan'
     });
   } catch (error) {
     res.status(500).json({
@@ -103,35 +140,17 @@ app.get('/api/s3-buckets', async (req, res) => {
   }
 });
 
-// AWS info endpoint
-app.get('/api/aws-info', (req, res) => {
+app.get('/aws-info', (req, res) => {
   res.json({
-    region: region,
+    region: process.env.AWS_REGION || 'us-east-1',
     service: 'ECS Fargate',
-    container: {
-      hostname: process.env.HOSTNAME || 'local',
-      platform: process.platform,
-      nodeVersion: process.version
-    },
-    environment: {
-      awsRegion: region,
-      nodeEnv: process.env.NODE_ENV || 'production'
-    },
+    container: process.env.HOSTNAME || 'local',
     developer: 'Rajikshan',
     timestamp: new Date().toISOString()
   });
 });
 
-// Main page
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${port}`);
   console.log(`👨‍💻 Developed by Rajikshan`);
-  console.log(`📡 API Endpoints available at:`);
-  console.log(`   - http://localhost:${port}/api/health`);
-  console.log(`   - http://localhost:${port}/api/aws-info`);
-  console.log(`   - http://localhost:${port}/api/s3-buckets`);
 });
