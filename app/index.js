@@ -1,123 +1,392 @@
 const express = require('express');
-const path = require('path');
-const { S3Client, ListBucketsCommand, GetBucketLocationCommand, GetBucketVersioningCommand } = require('@aws-sdk/client-s3');
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const AWS = require('aws-sdk');
 
 const app = express();
 const port = 8080;
 
-// Configure AWS SDK v3
-const region = process.env.AWS_REGION || 'us-east-1';
-const s3Client = new S3Client({ region });
-const dynamoClient = new DynamoDBClient({ region });
+// Configure AWS SDK
+AWS.config.update({ region: process.env.AWS_REGION || 'us-east-1' });
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+const s3 = new AWS.S3();
+const dynamodb = new AWS.DynamoDB.DocumentClient();
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  const os = require('os');
-  const uptime = process.uptime();
-  const hours = Math.floor(uptime / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>AWS ECS Demo App</title>
+      <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+          padding: 20px;
+        }
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+        .header {
+          text-align: center;
+          color: white;
+          margin-bottom: 30px;
+        }
+        .header h1 {
+          font-size: 2.5em;
+          margin-bottom: 10px;
+          text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .developer {
+          font-style: italic;
+          opacity: 0.9;
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        .card {
+          background: white;
+          border-radius: 15px;
+          padding: 25px;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+          transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .card:hover {
+          transform: translateY(-5px);
+          box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+        .card-header {
+          display: flex;
+          align-items: center;
+          margin-bottom: 20px;
+          padding-bottom: 15px;
+          border-bottom: 2px solid #f0f0f0;
+        }
+        .card-icon {
+          font-size: 2em;
+          margin-right: 15px;
+        }
+        .card-title {
+          font-size: 1.5em;
+          color: #333;
+        }
+        .info-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 12px;
+          margin: 8px 0;
+          background: #f8fafc;
+          border-radius: 8px;
+          transition: background 0.2s;
+        }
+        .info-row:hover {
+          background: #e0f2fe;
+        }
+        .info-label {
+          font-weight: 600;
+          color: #64748b;
+        }
+        .info-value {
+          color: #1e293b;
+          font-weight: 500;
+        }
+        .status-badge {
+          display: inline-block;
+          padding: 5px 15px;
+          border-radius: 20px;
+          font-size: 0.9em;
+          font-weight: 600;
+        }
+        .status-healthy {
+          background: #dcfce7;
+          color: #166534;
+        }
+        .loading {
+          text-align: center;
+          padding: 20px;
+          color: #64748b;
+        }
+        .spinner {
+          border: 3px solid #f3f3f3;
+          border-top: 3px solid #667eea;
+          border-radius: 50%;
+          width: 40px;
+          height: 40px;
+          animation: spin 1s linear infinite;
+          margin: 20px auto;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .bucket-list {
+          max-height: 400px;
+          overflow-y: auto;
+        }
+        .bucket-item {
+          padding: 15px;
+          margin: 10px 0;
+          background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+          border-radius: 8px;
+          border-left: 4px solid #667eea;
+        }
+        .bucket-name {
+          font-weight: 600;
+          color: #1e293b;
+          margin-bottom: 5px;
+        }
+        .bucket-date {
+          font-size: 0.85em;
+          color: #64748b;
+        }
+        .error {
+          background: #fee2e2;
+          color: #991b1b;
+          padding: 15px;
+          border-radius: 8px;
+          border-left: 4px solid #dc2626;
+        }
+        .refresh-btn {
+          background: #667eea;
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 1em;
+          margin-top: 15px;
+          transition: background 0.3s;
+        }
+        .refresh-btn:hover {
+          background: #764ba2;
+        }
+        .count-badge {
+          background: #667eea;
+          color: white;
+          padding: 3px 10px;
+          border-radius: 12px;
+          font-size: 0.85em;
+          margin-left: 10px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>🚀 AWS ECS Fargate Dashboard</h1>
+          <p class="developer">Developed by <strong>AA1868-Rajikshan</strong></p>
+        </div>
 
-  // Calculate memory usage percentage
-  const totalMem = os.totalmem();
-  const freeMem = os.freemem();
-  const usedMem = totalMem - freeMem;
-  const memoryUsagePercent = ((usedMem / totalMem) * 100).toFixed(2);
+        <div class="grid">
+          <!-- Health Check Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">💚</span>
+              <h2 class="card-title">Health Status</h2>
+            </div>
+            <div id="health-content">
+              <div class="loading">
+                <div class="spinner"></div>
+                <p>Loading health data...</p>
+              </div>
+            </div>
+          </div>
 
-  // Get load average (1, 5, 15 minutes)
-  const loadAvg = os.loadavg();
+          <!-- AWS Info Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">☁️</span>
+              <h2 class="card-title">AWS Information</h2>
+            </div>
+            <div id="aws-content">
+              <div class="loading">
+                <div class="spinner"></div>
+                <p>Loading AWS info...</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
+        <!-- S3 Buckets Card (Full Width) -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-icon">🪣</span>
+            <h2 class="card-title">S3 Buckets</h2>
+            <span id="bucket-count" class="count-badge">0</span>
+          </div>
+          <div id="s3-content">
+            <div class="loading">
+              <div class="spinner"></div>
+              <p>Loading S3 buckets...</p>
+            </div>
+          </div>
+          <button class="refresh-btn" onclick="loadS3Buckets()">🔄 Refresh Buckets</button>
+        </div>
+      </div>
+
+      <script>
+        function formatUptime(seconds) {
+          const hours = Math.floor(seconds / 3600);
+          const minutes = Math.floor((seconds % 3600) / 60);
+          const secs = Math.floor(seconds % 60);
+          return \`\${hours}h \${minutes}m \${secs}s\`;
+        }
+
+        function formatDate(dateString) {
+          const date = new Date(dateString);
+          return date.toLocaleString();
+        }
+
+        async function loadHealth() {
+          try {
+            const response = await fetch('/health');
+            const data = await response.json();
+            
+            document.getElementById('health-content').innerHTML = \`
+              <div class="info-row">
+                <span class="info-label">Status</span>
+                <span class="status-badge status-healthy">✓ \${data.status.toUpperCase()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Uptime</span>
+                <span class="info-value">\${formatUptime(data.uptime)}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Last Check</span>
+                <span class="info-value">\${formatDate(data.timestamp)}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Developer</span>
+                <span class="info-value">\${data.developer}</span>
+              </div>
+            \`;
+          } catch (error) {
+            document.getElementById('health-content').innerHTML = \`
+              <div class="error">Failed to load health data: \${error.message}</div>
+            \`;
+          }
+        }
+
+        async function loadAWSInfo() {
+          try {
+            const response = await fetch('/aws-info');
+            const data = await response.json();
+            
+            document.getElementById('aws-content').innerHTML = \`
+              <div class="info-row">
+                <span class="info-label">Service</span>
+                <span class="info-value">\${data.service}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Region</span>
+                <span class="info-value">\${data.region}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Container</span>
+                <span class="info-value">\${data.container}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Timestamp</span>
+                <span class="info-value">\${formatDate(data.timestamp)}</span>
+              </div>
+            \`;
+          } catch (error) {
+            document.getElementById('aws-content').innerHTML = \`
+              <div class="error">Failed to load AWS info: \${error.message}</div>
+            \`;
+          }
+        }
+
+        async function loadS3Buckets() {
+          document.getElementById('s3-content').innerHTML = \`
+            <div class="loading">
+              <div class="spinner"></div>
+              <p>Loading S3 buckets...</p>
+            </div>
+          \`;
+          
+          try {
+            const response = await fetch('/s3-buckets');
+            const data = await response.json();
+            
+            if (data.success) {
+              document.getElementById('bucket-count').textContent = data.count;
+              
+              if (data.buckets.length === 0) {
+                document.getElementById('s3-content').innerHTML = \`
+                  <div class="info-row">
+                    <span class="info-label">No S3 buckets found</span>
+                  </div>
+                \`;
+              } else {
+                const bucketsHtml = data.buckets.map(bucket => \`
+                  <div class="bucket-item">
+                    <div class="bucket-name">📦 \${bucket.Name}</div>
+                    <div class="bucket-date">Created: \${formatDate(bucket.CreationDate)}</div>
+                  </div>
+                \`).join('');
+                
+                document.getElementById('s3-content').innerHTML = \`
+                  <div class="bucket-list">\${bucketsHtml}</div>
+                \`;
+              }
+            } else {
+              document.getElementById('s3-content').innerHTML = \`
+                <div class="error">
+                  <strong>Error:</strong> \${data.error}<br>
+                  <small>\${data.note}</small>
+                </div>
+              \`;
+            }
+          } catch (error) {
+            document.getElementById('s3-content').innerHTML = \`
+              <div class="error">Failed to load S3 buckets: \${error.message}</div>
+            \`;
+          }
+        }
+
+        // Load all data on page load
+        window.onload = () => {
+          loadHealth();
+          loadAWSInfo();
+          loadS3Buckets();
+          
+          // Auto-refresh health every 30 seconds
+          setInterval(loadHealth, 30000);
+        };
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    uptime: {
-      raw: uptime,
-      formatted: `${hours}h ${minutes}m ${seconds}s`,
-      seconds: Math.floor(uptime)
-    },
-    system: {
-      platform: os.platform(),
-      arch: os.arch(),
-      nodeVersion: process.version,
-      hostname: os.hostname(),
-      memory: {
-        total: `${(os.totalmem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-        free: `${(os.freemem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-        used: `${((os.totalmem() - os.freemem()) / 1024 / 1024 / 1024).toFixed(2)} GB`,
-        usagePercent: `${memoryUsagePercent}%`
-      },
-      cpu: {
-        cores: os.cpus().length,
-        model: os.cpus()[0]?.model || 'Unknown',
-        speed: `${os.cpus()[0]?.speed || 0} MHz`
-      },
-      loadAverage: {
-        '1min': loadAvg[0].toFixed(2),
-        '5min': loadAvg[1].toFixed(2),
-        '15min': loadAvg[2].toFixed(2)
-      }
-    },
-    process: {
-      pid: process.pid,
-      memoryUsage: {
-        rss: `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`,
-        heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
-        heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`
-      }
-    },
+    uptime: process.uptime(),
     developer: 'Rajikshan'
   });
 });
 
-// S3 buckets endpoint
-app.get('/api/s3-buckets', async (req, res) => {
+app.get('/s3-buckets', async (req, res) => {
   try {
-    // List all buckets
-    const listCommand = new ListBucketsCommand({});
-    const data = await s3Client.send(listCommand);
-    
-    // Get additional bucket details for first 10 buckets
-    const bucketsWithDetails = await Promise.all(
-      data.Buckets.slice(0, 10).map(async (bucket) => {
-        try {
-          // Get bucket location
-          const locationCommand = new GetBucketLocationCommand({ Bucket: bucket.Name });
-          const locationData = await s3Client.send(locationCommand);
-          
-          // Get bucket versioning
-          const versioningCommand = new GetBucketVersioningCommand({ Bucket: bucket.Name });
-          const versioningData = await s3Client.send(versioningCommand);
-          
-          return {
-            name: bucket.Name,
-            creationDate: bucket.CreationDate,
-            region: locationData.LocationConstraint || 'us-east-1',
-            versioning: versioningData.Status || 'Disabled',
-            ageInDays: Math.floor((new Date() - new Date(bucket.CreationDate)) / (1000 * 60 * 60 * 24))
-          };
-        } catch (error) {
-          return {
-            name: bucket.Name,
-            creationDate: bucket.CreationDate,
-            region: 'Access Denied',
-            versioning: 'Unknown',
-            ageInDays: Math.floor((new Date() - new Date(bucket.CreationDate)) / (1000 * 60 * 60 * 24))
-          };
-        }
-      })
-    );
-
+    const data = await s3.listBuckets().promise();
     res.json({
       success: true,
-      buckets: bucketsWithDetails,
-      totalCount: data.Buckets.length,
-      displayedCount: bucketsWithDetails.length,
-      developer: 'Rajikshan',
-      timestamp: new Date().toISOString()
+      buckets: data.Buckets,
+      count: data.Buckets.length,
+      developer: 'Rajikshan'
     });
   } catch (error) {
     res.status(500).json({
@@ -129,35 +398,17 @@ app.get('/api/s3-buckets', async (req, res) => {
   }
 });
 
-// AWS info endpoint
-app.get('/api/aws-info', (req, res) => {
+app.get('/aws-info', (req, res) => {
   res.json({
-    region: region,
+    region: process.env.AWS_REGION || 'us-east-1',
     service: 'ECS Fargate',
-    container: {
-      hostname: process.env.HOSTNAME || 'local',
-      platform: process.platform,
-      nodeVersion: process.version
-    },
-    environment: {
-      awsRegion: region,
-      nodeEnv: process.env.NODE_ENV || 'production'
-    },
+    container: process.env.HOSTNAME || 'local',
     developer: 'Rajikshan',
     timestamp: new Date().toISOString()
   });
 });
 
-// Main page
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${port}`);
   console.log(`👨‍💻 Developed by Rajikshan`);
-  console.log(`📡 API Endpoints available at:`);
-  console.log(`   - http://localhost:${port}/api/health`);
-  console.log(`   - http://localhost:${port}/api/aws-info`);
-  console.log(`   - http://localhost:${port}/api/s3-buckets`);
 });
