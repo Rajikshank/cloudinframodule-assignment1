@@ -94,13 +94,13 @@ app.get('/', (req, res) => {
         }
         
         .developer {
-          font-size: 1.1em;
+          font-size: 2.1em;
           color: #94a3b8;
           font-weight: 400;
         }
         
         .developer strong {
-          background: linear-gradient(135deg, #667eea, #764ba2);
+          background: #ffffff;
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
@@ -416,7 +416,7 @@ app.get('/', (req, res) => {
       <div class="container">
         <div class="header">
           <h1>🚀 AWS ECS Fargate Dashboard</h1>
-          <p class="developer">Crafted with precision by <strong>AA1868-Rajikshan</strong></p>
+          <p class="developer">Developed by <strong>AA1868-Rajikshan</strong></p>
         </div>
 
         <div class="grid">
