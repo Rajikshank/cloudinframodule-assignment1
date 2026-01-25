@@ -7,11 +7,11 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: cloud-inframodule-app
-  ECS_SERVICE: cloud-inframodule-service
-  ECS_CLUSTER: cloud-inframodule-cluster
-  ECS_TASK_DEFINITION: cloud-inframodule-task
-  CONTAINER_NAME: cloud-inframodule-container
+  ECR_REPOSITORY: rajikshan-cloud-inframodule-app
+  ECS_SERVICE: rajikshan-cloud-inframodule-service
+  ECS_CLUSTER: rajikshan-cloud-inframodule-cluster
+  ECS_TASK_DEFINITION: rajikshan-cloud-inframodule-task
+  CONTAINER_NAME: rajikshan-cloud-inframodule-container
 
 jobs:
   deploy:
