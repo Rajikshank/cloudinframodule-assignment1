@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Project name"
   type        = string
-  default     = "cloud-inframodule"
+  default     = "rajikshan-cloud-inframodule"
 }
 
 variable "environment" {

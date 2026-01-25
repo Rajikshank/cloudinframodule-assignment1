@@ -1,7 +1,7 @@
 
 
 resource "aws_s3_bucket" "cloudinframodule_bucket" {
-  bucket = "cloudinframodule-bucket"
+  bucket = "rajikshan-cloudinfra-bucket"
 
   # Optional: enable versioning
   versioning {
