@@ -47,41 +47,58 @@ A production-ready Node.js application deployed on AWS ECS Fargate with complete
 ## 🏗️ Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        Internet                              │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-                          ↓
-              ┌───────────────────────┐
-              │  Application Load     │
-              │  Balancer (Port 80)   │
-              └───────────┬───────────┘
-                          │
-          ┌───────────────┴───────────────┐
-          │                               │
-          ↓                               ↓
-┌─────────────────┐           ┌─────────────────┐
-│  ECS Fargate    │           │  ECS Fargate    │
-│  Task (AZ-1)    │           │  Task (AZ-2)    │
-│  Private Subnet │           │  Private Subnet │
-└────────┬────────┘           └────────┬────────┘
-         │                             │
-         └──────────────┬──────────────┘
-                        │
+┌─────────────────────────────────────────────────────────────────┐
+│                          Internet/Users                          │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ HTTP (Port 80)
+                                ↓
+                    ┌───────────────────────┐
+                    │ Application Load      │
+                    │ Balancer (ALB)        │
+                    │ Public Subnets        │
+                    │ (us-east-1a, 1b)      │
+                    └───────────┬───────────┘
+                                │ Health Checks (/health)
+                                │ Port 8080
+                ┌───────────────┴───────────────┐
+                │                               │
+                ↓                               ↓
+    ┌─────────────────────┐       ┌─────────────────────┐
+    │   ECS Fargate Task  │       │   ECS Fargate Task  │
+    │   (Container 1)     │       │   (Container 2)     │
+    │   Public Subnet     │       │   Public Subnet     │
+    │   us-east-1a        │       │   us-east-1b        │
+    │   10.0.1.0/24       │       │   10.0.2.0/24       │
+    │   Public IP: Yes    │       │   Public IP: Yes    │
+    └──────────┬──────────┘       └──────────┬──────────┘
+               │                              │
+               └──────────────┬───────────────┘
+                              │ Direct Internet Access
+                              ↓
+                    ┌─────────────────┐
+                    │ Internet Gateway│
+                    └────────┬────────┘
+                             │
+            ┌────────────────┴────────────────┐
+            │                                 │
+            ↓                                 ↓
+    ┌──────────────┐                 ┌──────────────┐
+    │ Amazon ECR   │                 │ AWS APIs     │
+    │ (Pull Images)│                 │ CloudWatch   │
+    └──────────────┘                 └──────────────┘
+
+
+CI/CD Pipeline Flow:
+┌─────────┐      ┌──────────────┐      ┌─────────┐      ┌─────────┐
+│ GitHub  │──────│GitHub Actions│──────│   ECR   │──────│   ECS   │
+│  Push   │      │   (Build)    │      │(Images) │      │(Deploy) │
+└─────────┘      └──────────────┘      └─────────┘      └─────────┘
                         ↓
-              ┌─────────────────┐
-              │  NAT Gateway    │
-              └────────┬────────┘
-                       │
-                       ↓
-              ┌─────────────────┐
-              │    Internet     │
-              └─────────────────┘
-
-CI/CD Pipeline:
-GitHub → Actions → ECR → ECS Fargate
+                  ┌──────────┐
+                  │   OIDC   │
+                  │   Auth   │
+                  └──────────┘
 ```
-
 ### Infrastructure Components
 
 **Networking:**
@@ -555,174 +572,8 @@ env:
 
 ---
 
-## 📊 Monitoring
 
-### CloudWatch Logs
 
-View application logs:
-
-```bash
-# Tail logs in real-time
-aws logs tail /ecs/cloud-inframodule --follow --region us-east-1
-
-# View last 1 hour
-aws logs tail /ecs/cloud-inframodule --since 1h --region us-east-1
-
-# Search for errors
-aws logs tail /ecs/cloud-inframodule --filter-pattern "ERROR" --region us-east-1
-```
-
-### ECS Service Status
-
-```bash
-# Check service health
-aws ecs describe-services \
-  --cluster cloud-inframodule-cluster \
-  --services cloud-inframodule-service \
-  --region us-east-1
-
-# List running tasks
-aws ecs list-tasks \
-  --cluster cloud-inframodule-cluster \
-  --service-name cloud-inframodule-service \
-  --region us-east-1
-```
-
-### Target Group Health
-
-```bash
-# Check ALB target health
-aws elbv2 describe-target-health \
-  --target-group-arn $(aws elbv2 describe-target-groups \
-    --region us-east-1 \
-    --query "TargetGroups[?contains(TargetGroupName, 'cloud-inframodule')].TargetGroupArn" \
-    --output text) \
-  --region us-east-1
-```
-
-### Monitoring in AWS Console
-
-1. **ECS Console**: View cluster, services, and tasks
-   - https://console.aws.amazon.com/ecs/
-2. **CloudWatch Console**: View logs and metrics
-   - https://console.aws.amazon.com/cloudwatch/
-3. **EC2 Console**: View load balancer and target groups
-   - https://console.aws.amazon.com/ec2/
-
----
-
-## 🔧 Troubleshooting
-
-### Application Not Accessible
-
-**Problem:** Can't access application via ALB URL
-
-**Solutions:**
-```bash
-# 1. Check if tasks are running
-aws ecs list-tasks \
-  --cluster cloud-inframodule-cluster \
-  --service-name cloud-inframodule-service \
-  --region us-east-1
-
-# 2. Check target health
-# Should show "healthy" for both targets
-aws elbv2 describe-target-health \
-  --target-group-arn YOUR_TARGET_GROUP_ARN
-
-# 3. Check security groups
-# ALB SG should allow port 80 from 0.0.0.0/0
-# ECS SG should allow port 8080 from ALB SG
-
-# 4. View logs for errors
-aws logs tail /ecs/cloud-inframodule --follow
-```
-
-### GitHub Actions Failing
-
-**Problem:** Workflow fails with authentication error
-
-**Solutions:**
-1. Verify `AWS_ROLE_ARN` secret exists in GitHub
-2. Check OIDC provider exists in AWS IAM
-3. Verify trust policy has correct GitHub username/repo
-4. Ensure IAM role has required permissions
-
-```bash
-# Test role exists
-aws iam get-role --role-name GitHubActionsECSDeployRole
-
-# View trust policy
-aws iam get-role \
-  --role-name GitHubActionsECSDeployRole \
-  --query 'Role.AssumeRolePolicyDocument'
-```
-
-### Tasks Failing Health Checks
-
-**Problem:** ECS tasks start but fail health checks
-
-**Solutions:**
-```bash
-# 1. Check container logs
-aws logs tail /ecs/cloud-inframodule --follow
-
-# 2. Verify health endpoint works
-curl http://YOUR_ALB_DNS/health
-
-# 3. Check task definition health check settings
-aws ecs describe-task-definition \
-  --task-definition cloud-inframodule-task \
-  --query 'taskDefinition.containerDefinitions[0].healthCheck'
-```
-
-### Deployment Takes Too Long
-
-**Problem:** GitHub Actions waits forever during deployment
-
-**Solution:** Already optimized! But if still slow:
-
-1. Check current health check settings:
-```bash
-cd terraform
-terraform show | grep -A 10 health_check
-```
-
-2. Verify deployment is progressing:
-```bash
-aws ecs describe-services \
-  --cluster cloud-inframodule-cluster \
-  --services cloud-inframodule-service \
-  --query 'services[0].events[0:5]'
-```
-
-### ECR Push Fails
-
-**Problem:** Can't push Docker image to ECR
-
-**Solutions:**
-```bash
-# 1. Verify ECR repository exists
-aws ecr describe-repositories \
-  --repository-names cloud-inframodule-app \
-  --region us-east-1
-
-# 2. Re-authenticate with ECR
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin YOUR_ECR_URL
-
-# 3. Check IAM permissions
-aws ecr get-authorization-token --region us-east-1
-```
-
-### Need More Help?
-
-1. Check CloudWatch logs first
-2. Review GitHub Actions logs
-3. Check ECS service events
-4. Verify all resources exist in AWS Console
-
----
 
 ## 🧹 Cleanup
 
@@ -777,25 +628,7 @@ If Terraform destroy fails, manually delete:
 
 ---
 
-## 💰 Cost Estimate
 
-Approximate monthly costs (us-east-1, 2 tasks running 24/7):
-
-| Service | Cost |
-|---------|------|
-| ECS Fargate (2 tasks, 0.25 vCPU, 0.5 GB) | ~$15 |
-| Application Load Balancer | ~$16 |
-| NAT Gateways (2 × 0.045/hour) | ~$65 |
-| Data Transfer | ~$5 |
-| **Total** | **~$100/month** |
-
-**Cost Optimization Tips:**
-- Use 1 NAT Gateway instead of 2 (saves ~$32/month)
-- Use Fargate Spot for 70% discount (already configured!)
-- Delete resources when not needed
-- Use AWS Free Tier where applicable
-
----
 
 ## 📚 Additional Resources
 
